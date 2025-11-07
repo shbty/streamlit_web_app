@@ -269,6 +269,7 @@ elif st.session_state.page == "add_row":
             st.rerun()
 
     # 現在の持ち玉数入力 (keyにより値が保持される)
+    # value引数は初期化ブロックで設定したセッション状態を参照するため、ここでは不要
     st.number_input(
         "現在の持ち玉数を入力 (最終残数)", 
         min_value=0, 
