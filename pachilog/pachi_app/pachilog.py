@@ -297,7 +297,7 @@ elif st.session_state.page == "add_row":
     payout_from_per_round = st.session_state.get("last_payout_per_round", 0)
     gained_balls = payout_from_hit
     
-    if st.slider("🎯 当たり記録", use_container_width=False):
+    if st.expander("🎯 当たり記録", use_container_width=False):
         # データフレームの初期化
         hit_df = pd.DataFrame(st.session_state.get("hit_records", []), columns=["ラウンド", "獲得出玉"])
         # 💡 ラウンド数と出玉の入力を追加
