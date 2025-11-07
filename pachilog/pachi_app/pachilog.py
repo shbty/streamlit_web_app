@@ -58,7 +58,12 @@ if "page" not in st.session_state:
         st.session_state.last_hit_round = 0
     if "last_payout_per_round" not in st.session_state:
         st.session_state.last_payout_per_round = 0
-
+    if "hit_records" not in st.session_state:
+        st.session_state.hit_records = []
+    
+    # 💡 貸し玉追跡変数の初期化
+    if "loaned_balls_in_row" not in st.session_state:
+        st.session_state["loaned_balls_in_row"] = 0
 
 # ====== ページ1：店名・台番号・レート ======
 if st.session_state.page == "select":
@@ -135,8 +140,6 @@ elif st.session_state.page == "main":
 
     # 💰 投資ボタン
     col1, col2, col3, col4 = st.columns([4,1,1,1])
-    col1.subheader("💵 追銭")
-
     invest_actions = {
         "1000円": 1000, "5000円": 5000, "10000円": 10000
     }
@@ -161,7 +164,11 @@ elif st.session_state.page == "main":
             st.session_state.edit_index = None
             st.session_state.page = "add_row"
             
-            # 💡 データの永続化を考慮し、セッションデータのリセットはadd_rowへ移動
+            # ✅ 新しい行を追加する際は、前回の大当たり記録をリセットする (ここでリセットするのが正しい)
+            st.session_state.last_hit_payout = 0
+            st.session_state.last_hit_round = 0
+            st.session_state.last_payout_per_round = 0
+            st.session_state.hit_records = [] # 当たり記録の詳細もリセット
             
             st.rerun()
 
@@ -195,7 +202,7 @@ elif st.session_state.page == "main":
         
         # セッション状態を初期化してページ移動
         st.session_state.records = []
-        st.session_state.machine_info = {}
+        st.session_state.machine_state = {}
         st.session_state.page = "select"
         st.rerun()
 
@@ -204,44 +211,57 @@ elif st.session_state.page == "main":
 elif st.session_state.page == "add_row":
     is_edit = st.session_state.get("edit_index") is not None
     info = st.session_state.machine_info
-    current_balls = int(info.get("持ち玉", 0))
-    new_invest_money = int(info.get("貸し玉可能残金", 0)) # 0をデフォルト値に
+    
+    # 💡 持ち玉: 前の行の確定値 = この行の開始時の持ち玉
+    start_of_row_balls = int(info.get("持ち玉", 0)) 
+    new_invest_money = int(info.get("貸し玉可能残金", 0))
 
+    # --- 状態保持のための初期化: 既に値があれば保持し、なければ初期値を設定 ---
+    
+    # 1. 持ち玉入力 (add_row_new_balls): 
+    # セッションに値がなければ、この行の開始時の持ち玉で初期化
+    if "add_row_new_balls" not in st.session_state:
+        st.session_state["add_row_new_balls"] = start_of_row_balls
+        
+    # 2. 回転数入力 (add_row_start_rot / add_row_end_rot):
+    # セッションに値がなければ、新規時は0、編集時は既存レコードの値で初期化
+    if "add_row_start_rot" not in st.session_state:
+        if is_edit and "edit_index" in st.session_state:
+            record = st.session_state.records[st.session_state.edit_index]
+            st.session_state["add_row_start_rot"] = record["打ち始め"]
+        else:
+            st.session_state["add_row_start_rot"] = 0
+            
+    if "add_row_end_rot" not in st.session_state:
+        if is_edit and "edit_index" in st.session_state:
+            record = st.session_state.records[st.session_state.edit_index]
+            st.session_state["add_row_end_rot"] = record["打ち終わり"]
+        else:
+            st.session_state["add_row_end_rot"] = 0
+    
+    # 3. 貸し玉記録用の初期化: この行で何玉借りたか
+    if "loaned_balls_in_row" not in st.session_state:
+        st.session_state["loaned_balls_in_row"] = 0
+            
     st.subheader("📝 記録入力")
     
-    # 💡 ページ遷移時に値をリセットする（リフレッシュ対策済みなので、ここでは明示的にリセットする）
-    # is_editがNoneで、かつ初回ロード時（または戻るボタン以外での遷移時）に実行
-    if not is_edit and not st.session_state.get("add_row_initialized", False):
-        # last_hitなどの当たり記録をリセット
-        st.session_state.last_hit_payout = 0
-        st.session_state.last_hit_round = 0
-        st.session_state.last_payout_per_round = 0
-        # 回転数入力を初期化（前回の打ち終わりを次の打ち始めにするロジックも追加可能）
-        st.session_state["add_row_start_rot"] = 0 
-        st.session_state["add_row_end_rot"] = 0
-        st.session_state["add_row_new_balls"] = current_balls # 持ち玉を初期値に
-        st.session_state.add_row_initialized = True
-        
     # 貸し玉ボタン
     col1, col2 = st.columns([4,1])
     with col1:
         st.metric("貸し玉可能残金", f"{new_invest_money} 円")
     with col2:
-        zero_invest_money = (new_invest_money < 500 and info.get("交換率") == "4円") or \
-                           (new_invest_money < 200 and info.get("交換率") == "1円")
+        selected_rate = info.get("交換率", "4円")
+        min_money = 500 if selected_rate == "4円" else 200
+        added_balls_per_loan = 125 if selected_rate == "4円" else 200
+
+        zero_invest_money = (new_invest_money < min_money)
                            
         if st.button("貸し玉", disabled=zero_invest_money):
-            selected_rate = info.get("交換率", "4円")
-            if selected_rate == "4円":
-                min_money = 500
-                added_balls = 125
-            else:
-                min_money = 200
-                added_balls = 200
-                
-            # 貸し玉ボタンは st.number_input と連動させるため、session_stateを更新
-            st.session_state["add_row_new_balls"] = st.session_state["add_row_new_balls"] + added_balls
-            info["持ち玉"] = st.session_state["add_row_new_balls"]
+            
+            # ✅ 修正: 貸し玉ボタンは、借りた玉数を追跡する変数のみを更新します。
+            st.session_state["loaned_balls_in_row"] += added_balls_per_loan 
+            
+            # 貸し玉可能残金を更新
             info["貸し玉可能残金"] = new_invest_money - min_money
             
             # データ保存 (リフレッシュ対策)
@@ -250,30 +270,21 @@ elif st.session_state.page == "add_row":
 
     # 現在の持ち玉数入力 (keyにより値が保持される)
     st.number_input(
-        "現在の持ち玉数を入力", 
+        "現在の持ち玉数を入力 (最終残数)", 
         min_value=0, 
         step=50, 
-        key="add_row_new_balls" # 💡 keyによりセッション状態に保持
+        key="add_row_new_balls"
     )
     new_current_balls = st.session_state["add_row_new_balls"]
     
-    # 💡 貸し玉前の持ち玉（前回確定時の持ち玉）を取得
-    balls_at_start_of_row = info.get("持ち玉", 0) 
+    # 💡 修正: 使用玉数自動計算: (行開始時の持ち玉 + この行で借りた玉) - 最終残数
+    total_balls_available = start_of_row_balls + st.session_state["loaned_balls_in_row"]
+    used_balls = max(total_balls_available - new_current_balls, 0)
     
-    # 使用球数自動計算 (新しい持ち玉と、行開始時の持ち玉を比較)
-    used_balls = max(balls_at_start_of_row - new_current_balls, 0)
     st.write(f"使用玉数: {used_balls} 玉")
 
 
-    # 回転数入力
-    if is_edit:
-        # 編集モードの場合、既存レコードの値を初期値としてセッションに設定
-        if "edit_index" in st.session_state:
-            record = st.session_state.records[st.session_state.edit_index]
-            st.session_state["add_row_start_rot"] = record["打ち始め"]
-            st.session_state["add_row_end_rot"] = record["打ち終わり"]
-    
-    # number_inputをkeyだけで定義することで、セッション状態から値を読み込み、変更をセッションに書き込む
+    # 回転数入力 (keyにより値が保持される) - value引数は初期化ブロックで設定したセッション状態を参照するため、ここでは不要
     st.number_input("打ち始め回転数", min_value=0, step=1, key="add_row_start_rot")
     st.number_input("打ち終わり回転数", min_value=0, step=1, key="add_row_end_rot")
     
@@ -291,11 +302,7 @@ elif st.session_state.page == "add_row":
     st.write(f"獲得玉数: {gained_balls} 玉 (合計 {payout_from_round}R)")
     
     if st.button("🎯 当たり記録", use_container_width=True):
-        # 記録するデータを初期化
-        st.session_state.hit_records = [] 
-        # 新しいページへ遷移
         st.session_state.page = "hit_dist"
-        st.session_state.add_row_initialized = False # ページ離脱時にリセット
         st.rerun()
         
     st.divider()
@@ -315,10 +322,14 @@ elif st.session_state.page == "add_row":
             rotation_rate = 0
 
         now = datetime.now().strftime("%H:%M")
+        
+        # 編集モードの場合、元のレコードの時間を保持
+        time_to_use = st.session_state.records[st.session_state.edit_index]["時間"] if is_edit and st.session_state.get("edit_index") is not None else now
+
 
         new_record = {
-            "時間": record["時間"] if is_edit else now,
-            "使用玉数": used_balls,
+            "時間": time_to_use,
+            "使用玉数": used_balls, # ✅ 修正後の正確な使用玉数を記録
             "打ち始め": start_rot,
             "打ち終わり": end_rot,
             "通常回転": normal_rot,
@@ -328,27 +339,40 @@ elif st.session_state.page == "add_row":
             "1Rあたり獲得出玉": round(payout_from_per_round, 2),
         }
 
-        if is_edit:
+        if is_edit and st.session_state.get("edit_index") is not None:
             st.session_state.records[st.session_state.edit_index] = new_record
         else:
             st.session_state.records.append(new_record)
 
         # ✅ 現在持ち玉更新 (確定後の持ち玉)
         st.session_state.machine_info["持ち玉"] = final_balls
-        # 貸し玉前の持ち玉を更新
-        st.session_state.machine_info["balls_at_start_of_row"] = final_balls 
 
+        # 💡 add_row 画面の状態をリセット（次の行追加のために）
+        del st.session_state["add_row_new_balls"]
+        del st.session_state["add_row_start_rot"]
+        del st.session_state["add_row_end_rot"]
+        del st.session_state["loaned_balls_in_row"] # ✅ NEW: 借りた玉数もリセット
+        
         # データ保存 (リフレッシュ対策)
         save_data({"records": st.session_state.records, "machine_info": st.session_state.machine_info, "is_active": True})
         
         st.session_state.page = "main"
-        st.session_state.add_row_initialized = False # ページ離脱時にリセット
         st.rerun()
 
     if st.button("⬅ 戻る"):
         st.session_state.page = "main"
         st.session_state.edit_index = None
-        st.session_state.add_row_initialized = False # ページ離脱時にリセット
+        
+        # 💡 戻る時も add_row の状態をリセット
+        if "add_row_new_balls" in st.session_state:
+            del st.session_state["add_row_new_balls"]
+        if "add_row_start_rot" in st.session_state:
+            del st.session_state["add_row_start_rot"]
+        if "add_row_end_rot" in st.session_state:
+            del st.session_state["add_row_end_rot"]
+        if "loaned_balls_in_row" in st.session_state:
+            del st.session_state["loaned_balls_in_row"] # ✅ NEW: 借りた玉数もリセット
+            
         st.rerun()
         
 # ====== ページ4：当たり ======
@@ -397,8 +421,8 @@ elif st.session_state.page == "hit_dist":
         col_per_r.metric("1Rあたり獲得出玉", f"{payout_per_round:.2f} 玉/R")
         
         # 5. メイン画面に戻るボタン
-        if st.button("✅ 確定 (戻る)", use_container_width=True):
-            # 各数値を add_row 画面に渡す
+        if st.button("✅ 確定 ", use_container_width=True):
+            # 各数値を add_row 画面に渡す (リセットされないよう保持)
             st.session_state.last_hit_round = total_round
             st.session_state.last_hit_payout = total_payout
             st.session_state.last_payout_per_round = payout_per_round
