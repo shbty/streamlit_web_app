@@ -284,14 +284,13 @@ elif st.session_state.page == "add_row":
 
     # 回転数入力 (keyにより値が保持される) - value引数は初期化ブロックで設定したセッション状態を参照するため、ここでは不要
     st.number_input("打ち始め回転数", min_value=0, step=1, key="add_row_start_rot")
-    st.number_input("打ち終わり回転数", min_value=0, step=1, key="add_row_end_rot")
-    
+    st.number_input("打ち終わり回転数", min_value=0, step=1, key="add_row_end_rot")    
     start_rot = st.session_state["add_row_start_rot"]
     end_rot = st.session_state["add_row_end_rot"]
     
-    # データ保存 (リフレッシュ対策)
-    save_data({"records": st.session_state.records, "machine_info": info, "is_active": True})
-    
+    # セッション状態に新しい記録を追加
+    st.session_state.hit_records.append({"打ち始め": start_rot, "打ち終わり": end_rot})
+
     st.divider()
     
     # 獲得玉数表示
@@ -309,29 +308,30 @@ elif st.session_state.page == "add_row":
         new_balls = col_ball.number_input("獲得出玉 (玉)", min_value=0, step=1)
         if st.form_submit_button("➕ 記録を追加"):
             if new_round > 0 or new_balls > 0:
-                if not hit_df.empty:
-                    # 3. 合計値の算出
-                    total_round = hit_df["ラウンド"].sum()
-                    total_payout = hit_df["獲得出玉"].sum()
-                    # 4. 1Rあたりの獲得出玉の計算
-                    if total_round > 0:
-                        payout_per_round = total_payout / total_round
-                    else:
-                        payout_per_round = 0
-                # 各数値をリセットされないよう保持
-                st.session_state.last_hit_round = total_round
-                st.session_state.last_hit_payout = total_payout
-                st.session_state.last_payout_per_round = payout_per_round
                 # セッション状態に新しい記録を追加
                 st.session_state.hit_records.append({"ラウンド": new_round, "獲得出玉": new_balls})
-
                 st.rerun()
             else:
                 st.warning("ラウンド数と獲得出玉を入力してください。")      
+                
+    if not hit_df.empty:
+        # 3. 合計値の算出
+        total_round = hit_df["ラウンド"].sum()
+        total_payout = hit_df["獲得出玉"].sum()
+        # 4. 1Rあたりの獲得出玉の計算
+        if total_round > 0:
+            payout_per_round = total_payout / total_round
+        else:
+            payout_per_round = 0
+
+    # 各数値を add_row 画面に渡す (リセットされないよう保持)
+    st.session_state.last_hit_round = total_round
+    st.session_state.last_hit_payout = total_payout
+    st.session_state.last_payout_per_round = payout_per_round
         
     st.divider()
     st.write(f"使用玉数: {used_balls} 玉")
-    st.write(f"獲得玉数: {gained_balls} 玉 (合計 {payout_from_round}R)")
+    st.write(f"獲得玉数: {total_payout} 玉 (合計 {total_round}R)")
 
     
     # 最終持ち玉計算
