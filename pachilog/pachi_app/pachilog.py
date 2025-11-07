@@ -297,36 +297,37 @@ elif st.session_state.page == "add_row":
     payout_from_per_round = st.session_state.get("last_payout_per_round", 0)
     gained_balls = payout_from_hit
     
-    if st.expander("🎯 当たり記録"):
-        # データフレームの初期化
-        hit_df = pd.DataFrame(st.session_state.get("hit_records", []), columns=["ラウンド", "獲得出玉"])
-        # 💡 ラウンド数と出玉の入力を追加
-        with st.form("hit_input_form", clear_on_submit=True):
-            col_r, col_ball = st.columns(2)
-            new_round = col_r.number_input("ラウンド数 (R)", min_value=0, step=1)
-            new_balls = col_ball.number_input("獲得出玉 (玉)", min_value=0, step=1)
-            if st.form_submit_button("➕ 記録を追加"):
-                if new_round > 0 or new_balls > 0:
-                    # セッション状態に新しい記録を追加
-                    st.session_state.hit_records.append({"ラウンド": new_round, "獲得出玉": new_balls})
-                    st.rerun()
-                else:
-                    st.warning("ラウンド数と獲得出玉を入力してください。")      
-                    
-        if not hit_df.empty:
-            # 3. 合計値の算出
-            total_round = hit_df["ラウンド"].sum()
-            total_payout = hit_df["獲得出玉"].sum()
-            # 4. 1Rあたりの獲得出玉の計算
-            if total_round > 0:
-                payout_per_round = total_payout / total_round
+    # データフレームの初期化
+    hit_df = pd.DataFrame(st.session_state.get("hit_records", []), columns=["ラウンド", "獲得出玉"])
+    # 💡 ラウンド数と出玉の入力を追加
+    with st.form("hit_input_form", clear_on_submit=True):
+        col_r, col_ball = st.columns(2)
+        new_round = col_r.number_input("ラウンド数 (R)", min_value=0, step=1)
+        new_balls = col_ball.number_input("獲得出玉 (玉)", min_value=0, step=1)
+        if st.form_submit_button("➕ 記録を追加"):
+            if new_round > 0 or new_balls > 0:
+                # セッション状態に新しい記録を追加
+                st.session_state.hit_records.append({"ラウンド": new_round, "獲得出玉": new_balls})
+                st.rerun()
             else:
-                payout_per_round = 0
+                # 当たりがなくても０を追加
+                st.session_state.hit_records.append({"ラウンド": new_round, "獲得出玉": new_balls})
+                st.warning("ラウンド数と獲得出玉を入力してください。")      
+                
+    if not hit_df.empty:
+        # 3. 合計値の算出
+        total_round = hit_df["ラウンド"].sum()
+        total_payout = hit_df["獲得出玉"].sum()
+        # 4. 1Rあたりの獲得出玉の計算
+        if total_round > 0:
+            payout_per_round = total_payout / total_round
+        else:
+            payout_per_round = 0
 
-        # 各数値を add_row 画面に渡す (リセットされないよう保持)
-        st.session_state.last_hit_round = total_round
-        st.session_state.last_hit_payout = total_payout
-        st.session_state.last_payout_per_round = payout_per_round
+    # 各数値を add_row 画面に渡す (リセットされないよう保持)
+    st.session_state.last_hit_round = total_round
+    st.session_state.last_hit_payout = total_payout
+    st.session_state.last_payout_per_round = payout_per_round
         
     st.divider()
     st.write(f"使用玉数: {used_balls} 玉")
